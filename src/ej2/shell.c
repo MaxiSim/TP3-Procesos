@@ -6,6 +6,47 @@
 
 #define MAX_COMMANDS 200
 
+int child (int * index, int read_fd, int write_fd, char * command, int last_command){
+    // printf("Soy el hijo %i y ejecuto %s\n", *index, command);
+    dup2(read_fd, 0);
+    close(read_fd);
+    char *args[256];
+    char *token = strtok(command, " ");
+    int arg_count = 0;
+    while (token != NULL) 
+    {
+        if (token[0] == '"' && token[strlen(token)-1] == '"') {
+        token[strlen(token)-1] = '\0';
+        token++;
+        }
+        args[arg_count++] = token;
+        token = strtok(NULL, " ");
+    }
+    args[arg_count] = NULL;
+    // for (int i = 0; i < arg_count; i++)
+    //     printf("args: %s\n", args[i]);
+
+    if (last_command){
+        // printf("Last command\n");
+        // aca iria el execvp
+        execvp(args[0], args);
+        perror("Error en execvp\n");
+        return 0;
+    }
+
+    dup2(write_fd, 1);
+    close(write_fd);
+    // aca iria el execvp
+    execvp(args[0], args);
+    perror("Error en execvp\n");
+    return 0;
+}
+
+int parent (){
+    printf("Soy el padre\n");
+    return 0;
+}
+
 int main() {
 
     char command[256];
@@ -24,6 +65,7 @@ int main() {
            The strcspn() function returns the length of the initial segment of command that consists of 
            characters not in the string specified in the second argument ("\n" in this case). */
         command[strcspn(command, "\n")] = '\0';
+        command_count = 0;
 
         /* Tokenizes the command string using the pipe character (|) as a delimiter using the strtok() function. 
            Each resulting token is stored in the commands[] array. 
@@ -38,10 +80,41 @@ int main() {
         }
 
         /* You should start programming from here... */
+        int pipes [command_count-1][2];
+	    for (int i = 0; i < command_count; i++){
+		pipe(pipes[i]);
+		if (pipes[i] == -1){
+			perror("pipe failed");
+			exit(1);
+		    }
+	    }
+        int * PID = (int *) malloc(command_count * sizeof(int));
         for (int i = 0; i < command_count; i++) 
         {
+            if (strcmp(commands[i], "q") == 0){
+                printf("Exiting shell\n");
+                exit(0);
+            };
             printf("Command %d: %s\n", i, commands[i]);
+            switch(PID[i] = fork())
+            {
+                case -1:
+                    perror("fork failed");
+                    exit(1);
+                case 0:
+                    if (i == command_count-1){
+                        return child(&i, pipes[i][0], 1, commands[i], 2);
+                    } else if (i != 0){
+                        return child(&i, pipes[i][0], pipes[(i+1)%command_count][1], commands[i], 1);
+                    } else {
+                        return child(&i, 0, pipes[(i+1)%command_count][1], commands[i], 0);
+                    }
+            }
         }    
+        int Status;
+        for (int i = 0; i < command_count; i++){
+            waitpid(PID[i], &Status, 0);
+        }
     }
     return 0;
 }
